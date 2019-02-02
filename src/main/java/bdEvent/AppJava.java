@@ -16,6 +16,7 @@ public class AppJava {
 		 Dataset<Row> ds = spark.read().json(inputFile);
 		 Dataset<Input> dsData = ds.select("data").as(Encoders.bean(Input.class));
 		 dsData.printSchema();
+		 dsData.groupBy("year").agg(avg.col("temp"));
 		 
     }
 }
