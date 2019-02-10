@@ -1,7 +1,9 @@
-package bdEvent;
+
 
 import static org.apache.spark.sql.functions.col;
 import static org.apache.spark.sql.functions.explode;
+
+import java.net.URISyntaxException;
 
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -11,12 +13,12 @@ import org.apache.spark.sql.api.java.UDF4;
 import org.apache.spark.sql.types.DataTypes;
 
 public class AppJava {
-	private static final String METEO_DATA_PATH = "src/main/resources/meteo_data.json.gz";
-	private static final String GPS_COUNTRY_CITY_PATH = "src/main/resources/gps_country_city.csv";
-	public static void main(String[] args) {
+	private static final String METEO_DATA_PATH = "meteo_data.json.gz";
+	private static final String GPS_COUNTRY_CITY_PATH = "gps_country_city.csv";
+	public static void main(String[] args) throws URISyntaxException {
 		SparkSession spark = SparkSession.builder().master("local[*]").appName("meteo_data").getOrCreate();
 		//read data from JSON file
-		Dataset<Row> firstTable = spark.read().json(METEO_DATA_PATH);
+		Dataset<Row> firstTable = spark.read().json(AppJava.class.getClassLoader().getResource(METEO_DATA_PATH).getPath());
 		firstTable = firstTable.select(explode(firstTable.col("data")));
 		firstTable = firstTable.select(firstTable.col("col").getField("date").as("date"),
 				firstTable.col("col").getField("long").as("longX"), firstTable.col("col").getField("lat").as("latX"),
@@ -24,15 +26,16 @@ public class AppJava {
 		firstTable.show(10, false);
 		
 		// average temperature grouped by year
-		Dataset<Row> averageGroupedByYear = firstTable.groupBy(functions.year(firstTable.col("date"))).avg("temperature").select(col("avg(temperature)").cast("bigdecimal(2,2)"));
+		Dataset<Row> averageGroupedByYear = firstTable.groupBy(functions.year(firstTable.col("date"))).avg("temperature").select(col("avg(temperature)"));
 		averageGroupedByYear.show();
 		//read data from CSV file
-		Dataset<Row> secondTable = spark.read().option("header", "true").csv(GPS_COUNTRY_CITY_PATH);
+		Dataset<Row> secondTable = spark.read().option("header", "true").csv(AppJava.class.getClassLoader().getResource(GPS_COUNTRY_CITY_PATH).getPath());
 		secondTable = secondTable.select(col("Longitude").cast(DataTypes.DoubleType).as("longY"), col("Latitude").as("latY").cast(DataTypes.DoubleType), col("Country").as("country"),
 				col("City").as("city"));
 		// cross join two tables as we don't have precise location coordinates from the second table 
 		Dataset<Row> joined = firstTable.crossJoin(secondTable);
 		//calculate minimum distance between points from both tables, so we can figure out location
+		spark.sqlContext().udf().register("calculateDistance", calculateDistance, DataTypes.DoubleType);
 		joined = joined.select(functions
 				.callUDF("calculateDistance", col("latX"), col("longX"), col("latY"), col("longY")).as("distance"),
 				col("date"), col("latX"), col("longX"), col("country"), col("city"), col("temperature"));
@@ -51,9 +54,6 @@ public class AppJava {
 		
 	}
 
-	private static UDF4 calculateDistance = new UDF4<Double, Double, Double, Double, Double>() {
-		public Double call(Double latX, Double longX, Double latY, Double longY) {
-			return Math.hypot(latX - Double.valueOf(latY), longX - Double.valueOf(longY));
-		}
-	};
+	private static UDF4<Double, Double, Double, Double, Double> calculateDistance = (latX, longX, latY, longY) -> Math
+			.hypot(latX - Double.valueOf(latY), longX - Double.valueOf(longY));
 }
