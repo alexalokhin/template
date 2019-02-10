@@ -1,50 +1,59 @@
 package bdEvent;
-import static org.apache.spark.sql.functions.*;
-import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.api.java.JavaSparkContext;
+
+import static org.apache.spark.sql.functions.col;
+import static org.apache.spark.sql.functions.explode;
+
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
-import org.glassfish.hk2.api.ServiceLocator;
-
-import scala.reflect.api.Trees.SelectExtractor;
+import org.apache.spark.sql.functions;
+import org.apache.spark.sql.api.java.UDF4;
+import org.apache.spark.sql.types.DataTypes;
 
 public class AppJava {
-
-    public static void main(String[] args) {
-    	SparkSession spark = SparkSession.builder().master("local[*]").appName("event").getOrCreate();
-        JavaSparkContext sc = new JavaSparkContext(spark.sparkContext());
-//        JavaRDD<String> inputFile = sc.textFile("src/main/resources/meteo_data.json.gz");
-        Dataset<Row> json = spark.read().json("src/main/resources/meteo_data.json.gz");
-//        JavaRDD<String> flatMap = inputFile.flatMap(s -> Arrays.asList(s.split(" ")).iterator());
-//        List<String> take = flatMap.take(10);
-//        System.out.println(take.get(0));
-//		json.select(col("data")).show(10, false);
-		Dataset<Row> select = json.select(explode(col("data")));//.withColumn("col", col(""));
-		select.select(select.col("col").getField("date"), select.col("col").getField("long").as("longtitude"), select.col("col").getField("lat").as("latitude"), select.col("col").getField("tC").as("temp")).printSchema();
-//		select.col("col").as(")
-		select.printSchema();
-		select.show(10, false);
-//		select.groupBy(year(col("col.date"))).avg("col.tC").show();
-//		select.select(explode(col("long"))).select("long");
-//		select.show(10, false);
+	private static final String METEO_DATA_PATH = "src/main/resources/meteo_data.json.gz";
+	private static final String GPS_COUNTRY_CITY_PATH = "src/main/resources/gps_country_city.csv";
+	public static void main(String[] args) {
+		SparkSession spark = SparkSession.builder().master("local[*]").appName("meteo_data").getOrCreate();
+		//read data from JSON file
+		Dataset<Row> firstTable = spark.read().json(METEO_DATA_PATH);
+		firstTable = firstTable.select(explode(firstTable.col("data")));
+		firstTable = firstTable.select(firstTable.col("col").getField("date").as("date"),
+				firstTable.col("col").getField("long").as("longX"), firstTable.col("col").getField("lat").as("latX"),
+				firstTable.col("col").getField("tC").as("temperature"));
+		firstTable.show(10, false);
 		
-//        JavaRDD<String> inputFile = sc.textFile();
-//		System.out.println(inputFile.first());
-//		 Dataset<Row> ds = spark.read().json(inputFile);
-//		 ds.createOrReplaceGlobalTempView("view");
-//		 ds.select("data");
-		 
-//		 inputFile.DataTypes.createArrayType(DataType.fromJson(inputFile.first())).;
-		 
-//		 List<Row> collectAsList = ds.select("data").collectAsList();
-//		 System.out.println(collectAsList.get(0).get(0));
-//		 Object take = ds.take(10);
-//		 long count = ds.select("data").count();
-//		 System.out.println(count);//.as(Encoders.bean(Input.class));
-//		 ds.printSchema();
-		 sc.stop();
-//		 ds.groupBy("year").agg(avg.col("temp"));
-		 
-    }
+		// average temperature grouped by year
+		Dataset<Row> averageGroupedByYear = firstTable.groupBy(functions.year(firstTable.col("date"))).avg("temperature").select(col("avg(temperature)").cast("bigdecimal(2,2)"));
+		averageGroupedByYear.show();
+		//read data from CSV file
+		Dataset<Row> secondTable = spark.read().option("header", "true").csv(GPS_COUNTRY_CITY_PATH);
+		secondTable = secondTable.select(col("Longitude").cast(DataTypes.DoubleType).as("longY"), col("Latitude").as("latY").cast(DataTypes.DoubleType), col("Country").as("country"),
+				col("City").as("city"));
+		// cross join two tables as we don't have precise location coordinates from the second table 
+		Dataset<Row> joined = firstTable.crossJoin(secondTable);
+		//calculate minimum distance between points from both tables, so we can figure out location
+		joined = joined.select(functions
+				.callUDF("calculateDistance", col("latX"), col("longX"), col("latY"), col("longY")).as("distance"),
+				col("date"), col("latX"), col("longX"), col("country"), col("city"), col("temperature"));
+		// for each point from the first table find a minimum distance, so we can identify a city nearest to sensor coordinates
+		Dataset<Row> grouped = joined.groupBy(col("latX"), col("longX")).min("distance");
+		Dataset<Row> resultSet = joined.join(grouped)
+				.where(joined.col("latX").equalTo(grouped.col("latX"))
+						.and(joined.col("longX").equalTo(grouped.col("longX"))
+								.and(joined.col("distance").equalTo(grouped.col("min(distance)"))))).select(joined.col("latX"), joined.col("longX"), joined.col("date"), joined.col("country"), joined.col("city"), joined.col("temperature"));
+		resultSet.show(10, false);
+		// average temperature in Germany in year 2011
+		Dataset<Row> filtered = resultSet
+				.filter(resultSet.col("country").equalTo("Germany").and(functions.year(col("date")).equalTo("2011")));
+		filtered.agg(functions.avg("temperature")).show();
+		
+		
+	}
+
+	private static UDF4 calculateDistance = new UDF4<Double, Double, Double, Double, Double>() {
+		public Double call(Double latX, Double longX, Double latY, Double longY) {
+			return Math.hypot(latX - Double.valueOf(latY), longX - Double.valueOf(longY));
+		}
+	};
 }
