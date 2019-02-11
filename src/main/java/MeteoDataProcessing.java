@@ -45,13 +45,13 @@ public class MeteoDataProcessing {
 	}
 
 	private static Dataset<Row> loadMeteoData(SparkSession spark) {
-		Dataset<Row> firstTable = spark.read()
+		Dataset<Row> dataset = spark.read()
 				.json(MeteoDataProcessing.class.getClassLoader().getResource(METEO_DATA_PATH).getPath());
-		firstTable = firstTable.select(explode(firstTable.col("data")));
-		firstTable = firstTable.select(firstTable.col("col").getField("date").as("date"),
-				firstTable.col("col").getField("long").as("longX"), firstTable.col("col").getField("lat").as("latX"),
-				firstTable.col("col").getField("tC").as("temperature"));
-		return firstTable;
+		dataset = dataset.select(explode(dataset.col("data")));
+		dataset = dataset.select(dataset.col("col").getField("date").as("date"),
+				dataset.col("col").getField("long").as("longX"), dataset.col("col").getField("lat").as("latX"),
+				dataset.col("col").getField("tC").as("temperature"));
+		return dataset;
 	}
 
 	private static void showAverageTemperatureGroupedByYear(Dataset<Row> dataset) {
@@ -61,12 +61,12 @@ public class MeteoDataProcessing {
 	}
 
 	private static Dataset<Row> loadCitiesLocation(SparkSession spark) {
-		Dataset<Row> secondTable = spark.read().option("header", "true")
+		Dataset<Row> dataset = spark.read().option("header", "true")
 				.csv(MeteoDataProcessing.class.getClassLoader().getResource(GPS_COUNTRY_CITY_PATH).getPath());
-		secondTable = secondTable.select(col("Longitude").cast(DataTypes.DoubleType).as("longY"),
+		dataset = dataset.select(col("Longitude").cast(DataTypes.DoubleType).as("longY"),
 				col("Latitude").as("latY").cast(DataTypes.DoubleType), col("Country").as("country"),
 				col("City").as("city"));
-		return secondTable;
+		return dataset;
 	}
 
 	private static UDF4<Double, Double, Double, Double, Double> calculateDistance = (latX, longX, latY, longY) -> Math
