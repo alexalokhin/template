@@ -1,6 +1,5 @@
 
 import static org.apache.spark.sql.functions.col;
-import static org.apache.spark.sql.functions.explode;
 
 import java.net.URISyntaxException;
 
@@ -34,20 +33,22 @@ public class MeteoDataProcessing {
 		// for each point of sensor find a minimum distance
 		Dataset<Row> sensorCoordinatesWithMinimumDistance = joined.groupBy(col("latX"), col("longX")).min("distance");
 		// identify city nearest to sensor coordinates
-		Dataset<Row> resultSet = joined.join(sensorCoordinatesWithMinimumDistance).where(joined.col("latX")
-				.equalTo(sensorCoordinatesWithMinimumDistance.col("latX"))
-				.and(joined.col("longX").equalTo(sensorCoordinatesWithMinimumDistance.col("longX")).and(
-						joined.col("distance").equalTo(sensorCoordinatesWithMinimumDistance.col("min(distance)")))));
-		//show samples of joined data
-		resultSet.select(col("latX"), col("longX"), col("date"), col("country"), col("city"), col("temperature"))
-				.show(10, false);
+		Dataset<Row> resultSet = joined
+				.join(sensorCoordinatesWithMinimumDistance,
+						joined.col("latX").equalTo(sensorCoordinatesWithMinimumDistance.col("latX"))
+								.and(joined.col("longX").equalTo(sensorCoordinatesWithMinimumDistance.col("longX"))
+										.and(joined.col("distance")
+												.equalTo(sensorCoordinatesWithMinimumDistance.col("min(distance)")))))
+				.select(joined.col("latX"), joined.col("longX"), col("date"), col("country"), col("city"),
+						col("temperature"));
+		resultSet.show(10, false);
 		showAverageTemperatureInGermanyIn2011(resultSet);
 	}
 
 	private static Dataset<Row> loadMeteoData(SparkSession spark) {
 		Dataset<Row> dataset = spark.read()
 				.json(MeteoDataProcessing.class.getClassLoader().getResource(METEO_DATA_PATH).getPath());
-		dataset = dataset.select(explode(dataset.col("data")));
+		dataset = dataset.select(functions.explode(dataset.col("data")));
 		dataset = dataset.select(dataset.col("col").getField("date").as("date"),
 				dataset.col("col").getField("long").as("longX"), dataset.col("col").getField("lat").as("latX"),
 				dataset.col("col").getField("tC").as("temperature"));
