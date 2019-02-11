@@ -74,7 +74,7 @@ public class MeteodataService {
 
 	private Dataset<Row> loadMeteoData() {
 		Dataset<Row> dataset = sparkSession.read()
-				.json(AppJava.class.getClassLoader().getResource(METEO_DATA_PATH).getPath());
+				.json(getClass().getClassLoader().getResource(METEO_DATA_PATH).getPath());
 		dataset = dataset.select(functions.explode(dataset.col(DATA)));
 		dataset = dataset.select(dataset.col(COL).getField(DATE).as(DATE), dataset.col(COL).getField(LONG).as(LONG_X),
 				dataset.col(COL).getField(LAT).as(LAT_X), dataset.col(COL).getField(TC).as(TEMPERATURE));
@@ -87,7 +87,7 @@ public class MeteodataService {
 
 	private Dataset<Row> loadCitiesLocation() {
 		Dataset<Row> dataset = sparkSession.read().option(HEADER_KEY, Boolean.TRUE.toString())
-				.csv(AppJava.class.getClassLoader().getResource(GPS_COUNTRY_CITY_PATH).getPath());
+				.csv(getClass().getClassLoader().getResource(GPS_COUNTRY_CITY_PATH).getPath());
 		dataset = dataset.select(col(LONGTITUDE).cast(DataTypes.DoubleType).as(LONG_Y),
 				col(LATITUDE).as(LAT_Y).cast(DataTypes.DoubleType), col("Country").as(COUNTRY), col("City").as(CITY));
 		return dataset;
